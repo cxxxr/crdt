@@ -1,7 +1,8 @@
 (uiop:define-package #:crdt/woot
   (:use #:cl
         #:alexandria)
-  (:export #:char-id-site-id
+  (:export #:make-document
+           #:char-id-site-id
            #:char-id-local-id
            #:woot-char-id
            #:woot-char-visible
@@ -19,14 +20,14 @@
   (local-id (incf *local-id*)))
 
 (defun char-id-equal (id1 id2)
-  (and (= (char-id-site-id id1)
-          (char-id-site-id id2))
+  (and (equal (char-id-site-id id1)
+              (char-id-site-id id2))
        (= (char-id-local-id id1)
           (char-id-local-id id2))))
 
 (defun char-id< (id1 id2)
-  (and (< (char-id-site-id id1)
-          (char-id-site-id id2))
+  (and (string< (princ-to-string (char-id-site-id id1))
+                (princ-to-string (char-id-site-id id2)))
        (or (= (char-id-site-id id1)
               (char-id-site-id id2))
            (< (char-id-local-id id1)
