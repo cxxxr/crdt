@@ -10,7 +10,12 @@
            #:woot-char-next
            #:woot-char-previous
            #:generate-insert
-           #:generate-delete))
+           #:generate-delete
+           #:insert-char
+           #:delete-char
+           #:make-character-from-hash
+           #:replace-with-woot-sequence
+           #:get-string))
 (in-package #:crdt/woot)
 
 (defvar *local-id* 0)
@@ -44,10 +49,12 @@
           :type (or character string)
           :accessor woot-char-value)
    (next :initarg :next
-         :type char-id
+         :initform nil
+         :type (or null char-id)
          :accessor woot-char-next)
    (previous :initarg :previous
-             :type char-id
+             :initform nil
+             :type (or null char-id)
              :accessor woot-char-previous)))
 
 (defmethod print-object ((object woot-char) stream)
@@ -75,11 +82,11 @@
 
 (defun make-document (site-id)
   (let ((start (make-instance 'woot-char
-                              :id (make-char-id :site-id site-id)
+                              :id (make-char-id :site-id -1)
                               :value "start"
                               :visible nil))
         (end (make-instance 'woot-char
-                            :id (make-char-id :site-id site-id)
+                            :id (make-char-id :site-id -1)
                             :value "end"
                             :visible nil)))
     (setf (woot-char-next start) (woot-char-id end)
@@ -131,10 +138,15 @@
                                (elt sub-sequence (1- i))
                                (elt sub-sequence i)))))))
 
-(defun insert-char (sequence char)
+(defun insert-char-internal (sequence char)
   (let ((prev (find (woot-char-previous char) sequence :key #'woot-char-id :test #'char-id-equal))
         (next (find (woot-char-next char) sequence :key #'woot-char-id :test #'char-id-equal)))
     (integrate-insert sequence char prev next)))
+
+(defun insert-char (document char)
+  (setf (document-sequence document)
+        (insert-char-internal (document-sequence document) char))
+  (values))
 
 (defun generate-insert (document position value)
   (let* ((prev (or (nth-visible (document-sequence document) (1- position))
@@ -147,8 +159,12 @@
                               :value value
                               :next (woot-char-id next)
                               :previous (woot-char-id prev))))
-    (setf (document-sequence document)
-          (insert-char (document-sequence document) char))
+    (insert-char document char)
+    char))
+
+(defun generate-delete (document position)
+  (when-let ((char (nth-visible (document-sequence document) position)))
+    (setf (woot-char-visible char) nil)
     char))
 
 (defun delete-char (document char)
@@ -157,11 +173,6 @@
     (when pos
       (setf (woot-char-visible (elt sequence pos)) nil)))
   (values))
-
-(defun generate-delete (document position)
-  (when-let ((char (nth-visible (document-sequence document) position)))
-    (setf (woot-char-visible char) nil)
-    char))
 
 (defun test-woot ()
   (let ((doc (make-document 1)))
@@ -190,3 +201,49 @@
         (assert (char-id-equal (woot-char-next char4) (woot-char-id char2)))
         (assert (char-id-equal (woot-char-next char2) (woot-char-id char3)))
         (assert (char-id-equal (woot-char-next char3) (woot-char-id (document-end doc))))))))
+
+(defmethod yason:encode ((object char-id) &optional stream)
+  (yason:with-output (stream)
+    (yason:with-object ()
+      (yason:encode-object-element "site-id" (char-id-site-id object))
+      (yason:encode-object-element "local-id" (char-id-local-id object)))))
+
+(defmethod yason:encode ((object woot-char) &optional stream)
+  (yason:with-output (stream)
+    (yason:with-object ()
+      (yason:with-object-element ("id")
+        (yason:encode (woot-char-id object) stream))
+      (yason:encode-object-element "visible" (woot-char-visible object))
+      (yason:encode-object-element "value" (woot-char-value object))
+      (yason:with-object-element ("next")
+        (yason:encode (woot-char-next object) stream))
+      (yason:with-object-element ("previous")
+        (yason:encode (woot-char-previous object) stream)))))
+
+(defun make-id-from-hash (hash)
+   (let ((site-id (gethash "site-id" hash))
+         (local-id (gethash "local-id" hash)))
+     (make-char-id :site-id site-id
+                   :local-id local-id)))
+
+(defun make-character-from-hash (hash)
+  (let ((id (make-id-from-hash (gethash "id" hash)))
+        (visible (gethash "visible" hash))
+        (value (gethash "value" hash))
+        (next (make-id-from-hash (gethash "next" hash)))
+        (previous (make-id-from-hash (gethash "previous" hash))))
+    (make-instance 'woot-char
+                   :id id
+                   :visible visible
+                   :value value
+                   :next next
+                   :previous previous)))
+
+(defun replace-with-woot-sequence (document woot-sequence)
+  (setf (document-sequence document) woot-sequence))
+
+(defun get-string (document)
+  (with-output-to-string (out)
+    (loop :for char :in (document-sequence document)
+          :when (woot-char-visible char)
+          :do (princ (woot-char-value char) out))))
