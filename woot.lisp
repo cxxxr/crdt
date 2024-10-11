@@ -28,8 +28,8 @@
 (defun char-id< (id1 id2)
   (and (string< (princ-to-string (char-id-site-id id1))
                 (princ-to-string (char-id-site-id id2)))
-       (or (= (char-id-site-id id1)
-              (char-id-site-id id2))
+       (or (equal (char-id-site-id id1)
+                  (char-id-site-id id2))
            (< (char-id-local-id id1)
               (char-id-local-id id2)))))
 
@@ -123,7 +123,7 @@
           (t
            (let ((i 1))
              (loop :while (and (< i (1- (length sub-sequence)))
-                               (char-id< (elt sub-sequence i)
+                               (char-id< (woot-char-id (elt sub-sequence i))
                                          (woot-char-id char)))
                    :do (incf i))
              (integrate-insert sequence
