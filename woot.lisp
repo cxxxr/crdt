@@ -4,6 +4,7 @@
   (:export #:make-document
            #:char-id-site-id
            #:char-id-local-id
+           #:copy-woot-char
            #:woot-char-id
            #:woot-char-visible
            #:woot-char-value
@@ -67,6 +68,14 @@
               (char-id-local-id (woot-char-id object))
               (woot-char-value object)))))
 
+(defun copy-woot-char (woot-char)
+  (make-instance 'woot-char
+                 :id (woot-char-id woot-char)
+                 :visible (woot-char-visible woot-char)
+                 :value (woot-char-value woot-char)
+                 :next (woot-char-next woot-char)
+                 :previous (woot-char-previous woot-char)))
+
 (defun woot-char-equal (char1 char2)
   (char-id-equal (woot-char-id char1)
                  (woot-char-id char2)))
@@ -100,11 +109,7 @@
 
 (defun nth-visible (sequence position)
   (assert (<= 0 position))
-  (let ((visible-sequence
-          (append (list (elt sequence 0))
-                  (remove-if-not #'woot-char-visible sequence)
-                  (list (elt sequence (1- (length sequence)))))))
-    (nth position visible-sequence)))
+  (elt (remove-if-not #'woot-char-visible sequence) position))
 
 (defun position-by-char-id (sequence char-id)
   (position char-id sequence :key #'woot-char-id :test #'char-id-equal))
@@ -154,8 +159,12 @@
   (values))
 
 (defun generate-insert (document position value)
-  (let* ((prev (nth-visible (document-sequence document) position))
-         (next (nth-visible (document-sequence document) (1+ position)))
+  (let* ((sequence (document-sequence document))
+         (visible-sequence (append (list (elt sequence 0))
+                                   (remove-if-not #'woot-char-visible sequence)
+                                   (list (elt sequence (1- (length sequence))))))
+         (prev (elt visible-sequence position))
+         (next (elt visible-sequence (1+ position)))
          (char (make-instance 'woot-char
                               :id (make-char-id :site-id (document-site-id document))
                               :visible t
@@ -171,11 +180,12 @@
     char))
 
 (defun delete-char (document char)
-  (let* ((sequence (document-sequence document))
-         (pos (position-by-char-id sequence (woot-char-id char))))
-    (when pos
-      (setf (woot-char-visible (elt sequence pos)) nil)))
-  (values))
+  (when-let* ((sequence (document-sequence document))
+              (pos (position-by-char-id sequence (woot-char-id char)))
+              (char (elt sequence pos)))
+    (when (woot-char-visible char)
+      (setf (woot-char-visible char) nil)
+      t)))
 
 (defmethod yason:encode ((object char-id) &optional stream)
   (yason:with-output (stream)
@@ -226,7 +236,7 @@
           :do (princ (woot-char-value char) out))))
 
 (defun char-position (document woot-char)
-  (position-by-char-id (document-sequence document)
+  (position-by-char-id (remove-if-not #'woot-char-visible (document-sequence document))
                        (woot-char-id woot-char)))
 
 (defun test-woot ()
