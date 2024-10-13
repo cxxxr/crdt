@@ -99,10 +99,12 @@
                    :site-id site-id)))
 
 (defun nth-visible (sequence position)
-  (if (minusp position)
-      nil
-      (let ((visible-sequence (remove-if-not #'woot-char-visible sequence)))
-        (nth position visible-sequence))))
+  (assert (<= 0 position))
+  (let ((visible-sequence
+          (append (list (elt sequence 0))
+                  (remove-if-not #'woot-char-visible sequence)
+                  (list (elt sequence (1- (length sequence)))))))
+    (nth position visible-sequence)))
 
 (defun position-by-char-id (sequence char-id)
   (position char-id sequence :key #'woot-char-id :test #'char-id-equal))
@@ -152,10 +154,8 @@
   (values))
 
 (defun generate-insert (document position value)
-  (let* ((prev (or (nth-visible (document-sequence document) (1- position))
-                   (document-start document)))
-         (next (or (nth-visible (document-sequence document) position)
-                   (document-end document)))
+  (let* ((prev (nth-visible (document-sequence document) position))
+         (next (nth-visible (document-sequence document) (1+ position)))
          (char (make-instance 'woot-char
                               :id (make-char-id :site-id (document-site-id document))
                               :visible t
@@ -226,11 +226,8 @@
           :do (princ (woot-char-value char) out))))
 
 (defun char-position (document woot-char)
-  (loop :for c :in (document-sequence document)
-        :for pos :from 0
-        :do (when (char-id-equal (woot-char-id woot-char)
-                                 (woot-char-id c))
-              (return pos))))
+  (position-by-char-id (document-sequence document)
+                       (woot-char-id woot-char)))
 
 (defun test-woot ()
   (let ((doc (make-document 1)))
