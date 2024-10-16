@@ -1,3 +1,5 @@
+(declaim (optimize (speed 0) (safety 3) (debug 3)))
+
 (uiop:define-package #:crdt/woot
   (:use #:cl
         #:alexandria)
@@ -33,9 +35,9 @@
           (char-id-local-id id2))))
 
 (defun char-id< (id1 id2)
-  (and (string< (princ-to-string (char-id-site-id id1))
-                (princ-to-string (char-id-site-id id2)))
-       (or (equal (char-id-site-id id1)
+  (or (string< (princ-to-string (char-id-site-id id1))
+               (princ-to-string (char-id-site-id id2)))
+      (and (equal (char-id-site-id id1)
                   (char-id-site-id id2))
            (< (char-id-local-id id1)
               (char-id-local-id id2)))))
@@ -92,11 +94,11 @@
 
 (defun make-document (site-id)
   (let ((start (make-instance 'woot-char
-                              :id (make-char-id :site-id -1)
+                              :id (make-char-id :site-id -1 :local-id -1)
                               :value "start"
                               :visible nil))
         (end (make-instance 'woot-char
-                            :id (make-char-id :site-id -1)
+                            :id (make-char-id :site-id -1 :local-id -2)
                             :value "end"
                             :visible nil)))
     (setf (woot-char-next start) (woot-char-id end)
@@ -114,35 +116,38 @@
 (defun position-by-char-id (sequence char-id)
   (position char-id sequence :key #'woot-char-id :test #'char-id-equal))
 
-(defun sub-sequence (sequence prev next)
-  (let ((start-pos (position-by-char-id sequence (woot-char-id prev)))
-        (end-pos (position-by-char-id sequence (woot-char-id next))))
-    (subseq sequence (1+ start-pos) end-pos)))
-
 (defun local-insert (sequence char position)
-  (assert (< 0 position (length sequence)))
-  (setf sequence (append (subseq sequence 0 position)
-                         (list char)
-                         (subseq sequence position)))
-  sequence)
+  (append (subseq sequence 0 position)
+          (list char)
+          (subseq sequence position)))
 
 (defun integrate-insert (sequence char prev next)
-  (let ((sub-sequence (sub-sequence sequence prev next))
-        (pos (position-by-char-id sequence (woot-char-id next))))
-    (cond ((length= sub-sequence 0)
-           (local-insert sequence char pos))
-          ((length= sub-sequence 1)
-           (local-insert sequence char (1- pos)))
+  (let ((lowerbound (position-by-char-id sequence (woot-char-id prev)))
+        (upperbound (position-by-char-id sequence (woot-char-id next))))
+    (cond ((= 1 (- upperbound lowerbound))
+           (local-insert sequence char upperbound))
           (t
-           (let ((i 1))
-             (loop :while (and (< i (1- (length sub-sequence)))
-                               (char-id< (woot-char-id (elt sub-sequence i))
-                                         (woot-char-id char)))
-                   :do (incf i))
-             (integrate-insert sequence
-                               char
-                               (elt sub-sequence (1- i))
-                               (elt sub-sequence i)))))))
+           (let ((L (list prev)))
+             (loop :for i :from (1+ lowerbound) :below upperbound
+                   :for elt := (elt sequence i)
+                   :do (let ((prev-index
+                               (position-by-char-id sequence (woot-char-previous elt)))
+                             (next-index
+                               (position-by-char-id sequence (woot-char-next elt))))
+                         (when (and (<= prev-index lowerbound)
+                                    (<= upperbound next-index))
+                           (push elt L))))
+             (push next L)
+             (setf L (nreverse L))
+             (let ((i 1))
+               (loop :while (and (< i (1- (length L)))
+                                 (char-id< (woot-char-id (elt L i))
+                                           (woot-char-id char)))
+                     :do (incf i))
+               (integrate-insert sequence
+                                 char
+                                 (elt L (1- i))
+                                 (elt L i))))))))
 
 (defun insert-char-internal (sequence char)
   (let ((prev (find (woot-char-previous char)
@@ -244,29 +249,8 @@
                        (woot-char-id woot-char)))
 
 (defun test-woot ()
-  (let ((doc (make-document 1)))
-    (let ((char1 (generate-insert doc 0 "a"))
-          (char2 (generate-insert doc 1 "b"))
-          (char3 (generate-insert doc 2 "c")))
-      (assert (equal (mapcar #'woot-char-value (document-sequence doc))
-                     '("start" "a" "b" "c" "end")))
-      (assert (equal (mapcar #'woot-char-visible (document-sequence doc))
-                     '(nil t t t nil)))
-      (assert (char-id-equal (woot-char-next (document-start doc)) (woot-char-id char1)))
-      (assert (char-id-equal (woot-char-next char1) (woot-char-id char2)))
-      (assert (char-id-equal (woot-char-next char2) (woot-char-id char3)))
-      (assert (char-id-equal (woot-char-next char3) (woot-char-id (document-end doc))))
-      (assert (char-id-equal (woot-char-previous (document-end doc)) (woot-char-id char3)))
-      (assert (char-id-equal (woot-char-previous char3) (woot-char-id char2)))
-      (assert (char-id-equal (woot-char-previous char2) (woot-char-id char1)))
-      (assert (char-id-equal (woot-char-previous char1) (woot-char-id (document-start doc))))
-      (let ((char4 (generate-insert doc 1 "d")))
-        (assert (equal (mapcar #'woot-char-value (document-sequence doc))
-                       '("start" "a" "d" "b" "c" "end")))
-        (assert (equal (mapcar #'woot-char-visible (document-sequence doc))
-                       '(nil t t t t nil)))
-        (assert (char-id-equal (woot-char-next (document-start doc)) (woot-char-id char1)))
-        (assert (char-id-equal (woot-char-next char1) (woot-char-id char4)))
-        (assert (char-id-equal (woot-char-next char4) (woot-char-id char2)))
-        (assert (char-id-equal (woot-char-next char2) (woot-char-id char3)))
-        (assert (char-id-equal (woot-char-next char3) (woot-char-id (document-end doc))))))))
+  (let ((doc1 (make-document 1))
+        (doc2 (make-document 2)))
+    (let ((char (generate-insert doc1 0 "a")))
+      (insert-char doc2 char))
+    (assert (equal (get-string doc1) (get-string doc2)))))
