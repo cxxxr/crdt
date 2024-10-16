@@ -124,8 +124,6 @@
   (setf sequence (append (subseq sequence 0 position)
                          (list char)
                          (subseq sequence position)))
-  (setf (woot-char-next (elt sequence (1- position))) (woot-char-id char)
-        (woot-char-previous (elt sequence (1+ position))) (woot-char-id char))
   sequence)
 
 (defun integrate-insert (sequence char prev next)
@@ -147,8 +145,14 @@
                                (elt sub-sequence i)))))))
 
 (defun insert-char-internal (sequence char)
-  (let ((prev (find (woot-char-previous char) sequence :key #'woot-char-id :test #'char-id-equal))
-        (next (find (woot-char-next char) sequence :key #'woot-char-id :test #'char-id-equal)))
+  (let ((prev (find (woot-char-previous char)
+                    sequence
+                    :key #'woot-char-id
+                    :test #'char-id-equal))
+        (next (find (woot-char-next char)
+                    sequence
+                    :key #'woot-char-id
+                    :test #'char-id-equal)))
     (assert prev)
     (assert next)
     (integrate-insert sequence char prev next)))
